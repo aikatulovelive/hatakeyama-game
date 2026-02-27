@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ハタケヤマゲーム - 魁 - 蓮華昇華編</title>
+    <style>
+        body { margin: 0; background: #050505; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; font-family: "Hiragino Mincho ProN", "MS Mincho", serif; }
+        .container { position: relative; text-align: center; }
+        h1 { margin: 0 0 10px 0; color: #d4af37; text-shadow: 0 0 15px #d4af37; font-size: 28px; letter-spacing: 0.5em; }
+        canvas { border: 3px double #d4af37; background: radial-gradient(circle, #1a1a1a 0%, #000 100%); box-shadow: 0 0 30px rgba(212, 175, 55, 0.2); }
+        .ui { position: absolute; bottom: -40px; width: 100%; display: flex; justify-content: space-between; font-size: 14px; color: #aaa; }
+        #bossHpBar { position: absolute; top: 10px; left: 10%; width: 80%; height: 8px; background: #300; border: 1px solid #d4af37; display: none; }
+        #bossHpInner { width: 100%; height: 100%; background: #f00; transition: width 0.1s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="bossHpBar"><div id="bossHpInner"></div></div>
+        <h1>ハタケヤマゲーム</h1>
+        <canvas id="gameCanvas"></canvas>
+        <div class="ui">
+            <div id="scoreDisp">徳: 0</div>
+            <div id="infoDisp">[B] 悟り(徳540) / [SPACE] 裁断</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 800; canvas.height = 400;
+
+        let score = 0;
+        let gameOver = false;
+        let gameClear = false;
+        let frames = 0;
+        const keys = {};
+        const player = { x: 60, y: 180, size: 40 };
+        let bullets = [];
+        let enemies = [];
+        let particles = [];
+        let petals = []; // 蓮の花びら用
+
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'KeyB' && score >= 540 && !gameOver && !gameClear) {
+                score -= 540;
+                enemies.forEach(en => createExplosion(en.x + 15, en.y + 15, '#fff'));
+                enemies = [];
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        });
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        function createExplosion(x, y, color = '#d4af37') {
+            for(let i=0; i<15; i++) {
+                particles.push({
+                    x, y, vx: (Math.random()-0.5)*15, vy: (Math.random()-0.5)*15, 
+                    life: 50, size: Math.random()*5, color: color
+                });
+            }
+        }
+
+        // 蓮の花びらを生成
+        function createPetals() {
+            for(let i=0; i<50; i++) {
+                petals.push({
+                    x: Math.random() * canvas.width,
+                    y: -20 - Math.random() * 400,
+                    size: 10 + Math.random() * 15,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: 1 + Math.random() * 2,
+                    angle: Math.random() * Math.PI * 2,
+                    va: (Math.random() - 0.5) * 0.05,
+                    color: Math.random() > 0.5 ? '#ffd1dc' : '#ffffff'
+                });
+            }
+        }
+
+        const boss = { 
+            active: false, x: 900, y: 100, hp: 100, maxHp: 100, 
+            size: 150, hitFlash: 0, attackTimer: 0 
+        };
+
+        function getRank(s) {
+            if (s >= 30000) return { name: "如来 (極)", color: "#fff700" };
+            if (s >= 20000) return { name: "菩薩", color: "#ffa500" };
+            if (s >= 15000) return { name: "阿羅漢", color: "#00ffcc" };
+            return { name: "修行僧", color: "#aaa" };
+        }
+
+        function update() {
+            if (gameOver) return;
+
+            if (!gameClear) {
+                if (keys['ArrowUp'] && player.y > 0) player.y -= 7;
+                if (keys['ArrowDown'] && player.y < canvas.height - player.size) player.y += 7;
+                if (keys['ArrowLeft'] && player.x > 0) player.x -= 7;
+                if (keys['ArrowRight'] && player.x < canvas.width - player.size) player.x += 7;
+
+                if (keys['Space'] && frames % 6 === 0) {
+                    bullets.push({ x: player.x + player.size, y: player.y + 20, r: 5, speed: 14 });
+                }
+
+                if (score >= 5400 && !boss.active) {
+                    boss.active = true;
+                    document.getElementById('bossHpBar').style.display = 'block';
+                }
+
+                if (boss.active) {
+                    if (boss.x > 550) boss.x -= 1;
+                    boss.y = 100 + Math.sin(frames * 0.03) * 100;
+                    if (boss.hitFlash > 0) boss.hitFlash--;
+
+                    boss.attackTimer++;
+                    if (boss.attackTimer % 120 > 60 && boss.attackTimer % 8 === 0) {
+                        const angle = Math.atan2((player.y + 20) - (boss.y + 75), (player.x + 20) - (boss.x + 20));
+                        enemies.push({ x: boss.x + 20, y: boss.y + 75, size: 25, vx: Math.cos(angle) * 8, vy: Math.sin(angle) * 8, type: 'laser' });
+                    }
+                    if (boss.attackTimer % 150 === 0) {
+                        for(let i=0; i<8; i++) {
+                            const angle = (Math.PI * 2 / 8) * i;
+                            enemies.push({ x: boss.x + 75, y: boss.y + 75, size: 30, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, type: 'spread' });
+                        }
+                    }
+                }
+
+                // 弾の判定
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    let b = bullets[i];
+                    b.x += b.speed;
+                    let hitAny = false;
+                    if (boss.active && b.x > boss.x && b.x < boss.x + boss.size && b.y > boss.y && b.y < boss.y + boss.size) {
+                        boss.hp--; boss.hitFlash = 3;
+                        createExplosion(b.x, b.y, '#f55');
+                        hitAny = true;
+                        if (boss.hp <= 0) { gameClear = true; score += 10800; createPetals(); }
+                    }
+                    if (!hitAny) {
+                        for (let j = enemies.length - 1; j >= 0; j--) {
+                            let en = enemies[j];
+                            if (b.x > en.x && b.x < en.x + en.size && b.y > en.y && b.y < en.y + en.size) {
+                                createExplosion(en.x + 15, en.y + 15);
+                                enemies.splice(j, 1);
+                                score += 108; hitAny = true; break;
+                            }
+                        }
+                    }
+                    if (hitAny || b.x > canvas.width) bullets.splice(i, 1);
+                }
+
+                if (!boss.active && frames % 20 === 0) {
+                    enemies.push({ x: canvas.width, y: Math.random()*360, size: 35, vx: -(4 + Math.random()*3), vy: 0, type: 'normal' });
+                }
+
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    const en = enemies[i];
+                    en.x += en.vx || 0; en.y += (en.type === 'normal' ? Math.sin(frames * 0.1) * 2 : en.vy || 0);
+                    if (player.x < en.x + en.size - 10 && player.x + 30 > en.x + 10 && player.y < en.y + en.size - 10 && player.y + 30 > en.y + 10) gameOver = true;
+                    if (en.x < -100 || en.x > 900 || en.y < -100 || en.y > 500) enemies.splice(i, 1);
+                }
+            }
+
+            // 共通更新
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].x += particles[i].vx; particles[i].y += particles[i].vy; particles[i].life--;
+                if(particles[i].life <= 0) particles.splice(i, 1);
+            }
+            petals.forEach(p => {
+                p.x += p.vx; p.y += p.vy; p.angle += p.va;
+                if (p.y > canvas.height) p.y = -p.size;
+            });
+            
+            document.getElementById('scoreDisp').innerText = `徳: ${score}`;
+            if(boss.active) document.getElementById('bossHpInner').style.width = (boss.hp / boss.maxHp * 100) + '%';
+        }
+
+        function draw() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 蓮の花びら描画
+            petals.forEach(p => {
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.angle);
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, p.size / 2, p.size, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            if (!gameClear) {
+                ctx.shadowBlur = 15; ctx.shadowColor = '#fff'; ctx.fillStyle = '#fff';
+                ctx.font = 'bold 40px serif';
+                ctx.fillText('魁', player.x, player.y + 35);
+
+                ctx.shadowBlur = 10; ctx.shadowColor = '#0ff';
+                bullets.forEach(b => { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill(); });
+
+                enemies.forEach(en => { 
+                    ctx.shadowBlur = 5; ctx.shadowColor = '#f00'; ctx.fillStyle = en.type === 'laser' ? '#ff0' : '#600';
+                    ctx.font = en.type === 'laser' ? '25px serif' : '35px serif';
+                    ctx.fillText('欲', en.x, en.y + en.size/1.2); 
+                });
+
+                if (boss.active) {
+                    ctx.shadowBlur = boss.hitFlash > 0 ? 40 : 20; 
+                    ctx.shadowColor = boss.hitFlash > 0 ? '#fff' : '#f00';
+                    ctx.fillStyle = boss.hitFlash > 0 ? '#fff' : '#300';
+                    ctx.font = 'bold 150px serif';
+                    ctx.fillText('執着', boss.x, boss.y + 120);
+                }
+            }
+
+            ctx.shadowBlur = 0;
+            particles.forEach(p => {
+                ctx.globalAlpha = p.life / 50; ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, p.size, p.size);
+            });
+            ctx.globalAlpha = 1.0;
+
+            if (gameOver || gameClear) {
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(0,0,canvas.width, canvas.height);
+                ctx.textAlign = 'center';
+                if (gameOver) {
+                    ctx.fillStyle = '#d4af37'; ctx.font = '50px serif';
+                    ctx.fillText('欲に呑まれし者', canvas.width/2, canvas.height/2);
+                } else {
+                    const rank = getRank(score);
+                    ctx.fillStyle = '#fff'; ctx.shadowBlur = 30; ctx.shadowColor = '#fff';
+                    ctx.font = '100px serif'; ctx.fillText('解脱', canvas.width/2, canvas.height/2 - 60);
+                    ctx.font = '30px serif'; ctx.fillText(`最終得徳: ${score}`, canvas.width/2, canvas.height/2 + 10);
+                    ctx.fillStyle = rank.color; ctx.shadowColor = rank.color;
+                    ctx.font = 'bold 45px serif'; ctx.fillText(`位階: ${rank.name}`, canvas.width/2, canvas.height/2 + 70);
+                }
+                ctx.shadowBlur = 0; ctx.fillStyle = '#d4af37'; ctx.font = '20px serif';
+                ctx.fillText('F5にて再び起て', canvas.width/2, canvas.height/2 + 150);
+            }
+        }
+
+        function loop() { frames++; update(); draw(); requestAnimationFrame(loop); }
+        loop();
+    </script>
+</body>
+</html>
